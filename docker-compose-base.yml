@@ -1,0 +1,118 @@
+version: "3"
+services:
+  mysql:
+    image: mysql/mysql-server:8.0.27
+    hostname: mysql
+    container_name: mysql
+    ports:
+      - 3306:3306
+    environment:
+      - MYSQL_ROOT_PASSWORD=debezium
+      - MYSQL_USER=mysqluser
+      - MYSQL_PASSWORD=mysqlpw
+    volumes:
+      - ./mysql/mysql.cnf:/etc/mysql/conf.d
+      - ./mysql/mysql_bootstrap.sql:/docker-entrypoint-initdb.d/mysql_bootstrap.sql
+      - ./mysql/data:/var/lib/mysql-files/data
+    networks:
+      - rta
+    healthcheck: {test: mysql -pdebezium -e 'select 1', interval: 1s, start_period: 120s}
+  zookeeper:
+    image: zookeeper:latest
+    container_name: zookeeper
+    hostname: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOO_MY_ID: 1
+      ZOO_PORT: 2181
+      ZOO_SERVERS: server.1=zookeeper:2888:3888;2181
+    networks:
+      - rta
+  kafka:
+    image: confluentinc/cp-kafka:7.1.0
+    hostname: kafka
+    container_name: kafka
+    ports:
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_TOOLS_LOG4J_LOGLEVEL: ERROR
+    depends_on:
+      [zookeeper]
+    healthcheck: {test: nc -z localhost 9092, interval: 1s, start_period: 120s}
+    networks:
+      - rta
+  debezium:
+    image: debezium/connect:1.8
+    hostname: debezium
+    container_name: debezium
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: connect_configs
+      OFFSET_STORAGE_TOPIC: connect_offsets
+    ports:
+      - 8083:8083
+    healthcheck: {test: curl -f localhost:8083, interval: 1s, start_period: 120s}
+    depends_on:
+      kafka: {condition: service_healthy}
+      mysql: {condition: service_healthy}
+    networks:
+      - rta
+  debezium_deploy:
+    image: debezium/connect:1.8
+    depends_on:
+      debezium: {condition: service_healthy}
+    environment:
+      KAFKA_ADDR: kafka:9092
+    volumes:
+      - ./debezium/register_mysql.sh:/register_mysql.sh
+    entrypoint: [bash, -c, /register_mysql.sh]
+    networks:
+      - rta
+  orders-service:
+    build: orders-service
+    restart: unless-stopped
+    container_name: orders-service
+    depends_on:
+      - mysql
+      - kafka
+    environment:
+      - MYSQL_SERVER=mysql
+      - KAFKA_BROKER_HOSTNAME=kafka
+      - KAFKA_BROKER_PORT=9092
+    networks:
+      - rta
+  delivery-service:
+    build: delivery-service
+    restart: unless-stopped
+    container_name: delivery-service
+    depends_on:
+      - mysql
+      - kafka
+    environment:
+      - MYSQL_SERVER=mysql
+      - KAFKA_BROKER_HOSTNAME=kafka
+      - KAFKA_BROKER_PORT=9092
+    networks:
+      - rta
+  orders-service-api:
+    build: orders-service-api
+    restart: unless-stopped
+    container_name: orders-service-api
+    ports:
+      - "5000:5000"
+    environment:
+      - PINOT_SERVER
+      - PINOT_PORT
+    networks:
+      - rta
+networks:
+  rta:
+    name: rta
