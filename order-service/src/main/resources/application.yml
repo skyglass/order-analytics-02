@@ -20,6 +20,19 @@ spring:
   lifecycle:
     timeout-per-shutdown-phase: 15s
 
+  kafka:
+    consumer:
+      heartbeat.interval.ms: 200
+    streams:
+      bootstrap-servers: localhost:9092
+      application-id: orders-kafka-streams5
+      cache:
+        max.bytes.buffering: 10240
+      commit.interval.ms: 1000
+      metadata.max.age.ms: 500
+      auto.offset.reset: earliest
+      metrics.recording.level: DEBUG
+
   datasource:
     username: ${app.postgres.user}
     password: ${app.postgres.password}
@@ -28,6 +41,22 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+
+
+
+
+    properties:
+      default:
+        key:
+          serde: 'org.apache.kafka.common.serialization.Serdes$StringSerde'
+        value:
+          serde: 'org.apache.kafka.common.serialization.Serdes$StringSerde'
+        deserialization:
+          exception:
+            handler: 'org.apache.kafka.streams.errors.LogAndContinueExceptionHandler'
+        serialization:
+          exception:
+            handler: 'com.learnkafkastreams.exceptionhandler.StreamsSerializationExceptionHandler'
 
 
 app:
