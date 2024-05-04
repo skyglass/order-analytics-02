@@ -54,8 +54,7 @@ target/
 .springBeans
 src/main/resources/static/
 
-**/venv/**
-**./venv/**
+/.venv/**
 raw_data
 kafka-streams/target
-**/streamlit/**
+/streamlit/.venv/**
