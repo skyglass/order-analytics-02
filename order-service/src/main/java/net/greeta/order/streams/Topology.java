@@ -2,7 +2,6 @@ package net.greeta.order.streams;
 
 import io.debezium.serde.DebeziumSerdes;
 import net.greeta.order.models.*;
-import net.greeta.order.order.models.*;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;

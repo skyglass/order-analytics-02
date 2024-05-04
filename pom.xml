@@ -26,6 +26,7 @@
 
     <modules>
         <module>common-domain</module>
+        <module>product-service</module>
         <module>order-service</module>
         <module>e2e-service</module>
     </modules>

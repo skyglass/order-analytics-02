@@ -9,7 +9,6 @@ import net.greeta.order.models.*;
 import net.greeta.order.streams.OrdersQueries;
 import net.greeta.order.common.domain.dto.order.Order;
 import net.greeta.order.common.domain.dto.order.OrderRequest;
-import net.greeta.order.order.models.*;
 import org.apache.pinot.client.Connection;
 import org.apache.pinot.client.ConnectionFactory;
 import org.apache.pinot.client.ResultSet;

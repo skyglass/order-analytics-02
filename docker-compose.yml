@@ -33,15 +33,12 @@ services:
       POSTGRES_PASSWORD: dbpass
       POSTGRES_USER: dbuser
       PGTZ: Europe/Amsterdam
-      CUSTOMER_DB_USER: customerdbuser
-      CUSTOMER_DB_PASSWORD: dbpass
-      CUSTOMER_DB_NAME: customerdb
       ORDER_DB_USER: orderdbuser
       ORDER_DB_PASSWORD: dbpass
       ORDER_DB_NAME: orderdb
-      INVENTORY_DB_USER: inventorydbuser
-      INVENTORY_DB_PASSWORD: dbpass
-      INVENTORY_DB_NAME: inventorydb
+      PRODUCT_DB_USER: productdbuser
+      PRODUCT_DB_PASSWORD: dbpass
+      PRODUCT_DB_NAME: productdb
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U dbuser" ]
       interval: 10s
@@ -135,6 +132,7 @@ services:
     restart: always
     ports:
       - 8083:8083
+    healthcheck: {test: curl -f localhost:8083, interval: 1s, start_period: 120s}
     environment:
       GROUP_ID: 1
       CONFIG_STORAGE_TOPIC: connect_configs
@@ -146,6 +144,18 @@ services:
     depends_on:
       - order-kafka1
       - order-kafka2
+    networks:
+      - order
+
+  debezium_deploy:
+    image: debezium/connect:2.2
+    depends_on:
+      order-connect: {condition: service_healthy}
+    environment:
+      KAFKA_ADDR: order-kafka1:29092
+    volumes:
+      - ./debezium/register_mysql.sh:/register_mysql.sh
+    entrypoint: [bash, -c, /register_mysql.sh]
     networks:
       - order
 
@@ -162,5 +172,115 @@ services:
       KAFKA_CLUSTERS_0_METRICS_PORT: 9011
       KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: order-connect
       KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://order-connect:8083
+    networks:
+      - order
+
+
+  pinot-controller:
+    image: apachepinot/pinot:0.10.0
+    command: "StartController -zkAddress order-zookeeper:2181"
+    container_name: "pinot-controller"
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    depends_on:
+      - order-zookeeper
+    networks:
+      - order
+
+  pinot-broker:
+    image: apachepinot/pinot:0.10.0
+    command: "StartBroker -zkAddress order-zookeeper:2181"
+    restart: unless-stopped
+    container_name: "pinot-broker"
+    ports:
+      - "8099:8099"
+    depends_on:
+      - pinot-controller
+    networks:
+      - order
+
+  pinot-server:
+    image: apachepinot/pinot:0.10.0
+    container_name: "pinot-server"
+    command: "StartServer -zkAddress order-zookeeper:2181"
+    restart: unless-stopped
+    depends_on:
+      - pinot-broker
+    networks:
+      - order
+
+  pinot-add-table:
+    image: apachepinot/pinot:0.10.0
+    container_name: "pinot-add-table"
+    volumes:
+      - ./pinot/config:/config
+    command: "'./bin/pinot-admin.sh AddTable -schemaFile /config/orders/schema.json -tableConfigFile /config/orders/table.json -controllerHost pinot-controller -exec && \
+               ./bin/pinot-admin.sh AddTable -schemaFile /config/order_items_enriched/schema.json -tableConfigFile /config/order_items_enriched/table.json -controllerHost pinot-controller -exec'"
+    restart: on-failure
+    entrypoint: "bash -c"
+    environment:
+      - "JAVA_OPTS=-Dpinot.admin.system.exit=true"
+    depends_on:
+      - pinot-controller
+    networks:
+      - order
+
+
+  order-dashboard:
+    build: streamlit
+    restart: unless-stopped
+    container_name: dashboard
+    ports:
+      - "8501:8501"
+    depends_on:
+      - pinot-controller
+    volumes:
+      - ./streamlit/app.py:/workdir/app.py
+    environment:
+      - PINOT_SERVER
+      - PINOT_PORT
+    networks:
+      - order
+
+  orders-service:
+    build: orders-service
+    restart: unless-stopped
+    container_name: orders-service
+    depends_on:
+      - order-mysql
+      - order-kafka1
+      - order-kafka2
+    environment:
+      - MYSQL_SERVER=order-mysql
+      - KAFKA_BROKER_HOSTNAME=order-kafka1
+      - KAFKA_BROKER_PORT=9092
+    networks:
+      - order
+
+  delivery-service:
+    build: delivery-service
+    restart: unless-stopped
+    container_name: delivery-service
+    depends_on:
+      - order-mysql
+      - order-kafka1
+      - order-kafka2
+    environment:
+      - MYSQL_SERVER=order-mysql
+      - KAFKA_BROKER_HOSTNAME=order-kafka1
+      - KAFKA_BROKER_PORT=9092
+    networks:
+      - order
+
+  orders-service-api:
+    build: orders-service-api
+    restart: unless-stopped
+    container_name: orders-service-api
+    ports:
+      - "5000:5000"
+    environment:
+      - PINOT_SERVER
+      - PINOT_PORT
     networks:
       - order
